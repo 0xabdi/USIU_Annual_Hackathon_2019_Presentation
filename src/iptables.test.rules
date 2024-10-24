@@ -1,0 +1,159 @@
+#######################################################################
+# Author: Abdirahman Hish Mohamed
+# Linux Firewall Ruleset (IPTABLES)
+# (C) October 2018
+#######################################################################
+
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+
+#Translate all packets using inside interface address (wlan0) to eth0 interface address
+-A POSTROUTING -o eth0 -j MASQUERADE
+
+COMMIT
+
+*filter
+
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT DROP [0:0]
+:LOG_DROPS - [0:0]
+
+##########################################
+## INPUT CHAIN
+##########################################
+
+# DROP RFC 1918 addresses on eth0 to prevent against SPOOFING
+# Uncomment the below rules ONLY if your eth0 interface has a public IP address
+#-A INPUT -i eth0 -s 0.0.0.0/8 -j LOG_DROPS
+#-A INPUT -i eth0 -s 127.0.0.0/8 -j LOG_DROPS
+#-A INPUT -i eth0 -s 10.0.0.0/8 -j LOG_DROPS
+#-A INPUT -i eth0 -s 192.168.0.0/16 -j LOG_DROPS
+#-A INPUT -i eth0 -s 172.16.0.0/12 -j LOG_DROPS
+#-A INPUT -i eth0 -s 169.254.0.0/16 -j LOG_DROPS
+#-A INPUT -i eth0 -s 224.0.0.0/24 -j LOG_DROPS
+
+#Allow Multicast Traffic - If this was dropped and logged a lot of benign logs were genrated
+-A INPUT -s 224.0.0.0/24 -j ACCEPT
+-A INPUT -d 224.0.0.0/24 -j ACCEPT
+-A INPUT -d 172.16.6.0/24 -j ACCEPT
+-A INPUT -d 172.16.6.255/32 -j ACCEPT
+-A INPUT -d 192.168.0.0/24 -j ACCEPT
+-A INPUT -d 127.0.0.1 -j ACCEPT
+-A INPUT -s 127.0.0.1 -j ACCEPT
+
+#PASS EVERYTHING ON THE LOOPBACK INTERFACE
+-A INPUT -i l0 -j ACCEPT 
+
+#ALLOWED SERVICES *UNCOMMENT BELOW ONLY IF YOUR DEFAULT POLICY CHAINS IS SET TO DROP*
+
+#ALLOW ACCESS TO THE R-PI Web Server
+-A INPUT -p tcp --dport 80 -j ACCEPT 
+-A INPUT -p tcp --dport 443 -j ACCEPT
+
+#ALLOW ACCESS TO THE NETWORK DASHBOARD
+-A INPUT -p tcp --dport 19999 -j ACCEPT 
+
+#DNS
+-A INPUT -p udp --dport 53 -j ACCEPT
+-A INPUT -p tcp --dport 53 -j ACCEPT
+
+#SSH 
+-A INPUT -p tcp --dport 22 -j ACCEPT
+
+-A INPUT -p icmp -j ACCEPT 
+
+#DNS, DHCP, SSH, ntp, icmp-echo, squid web proxy etc
+-A INPUT ! -i eth0 -p udp --dport 53 -j ACCEPT
+-A INPUT ! -i eth0 -p tcp --dport 53 -j ACCEPT
+-A INPUT ! -i eth0 -p udp --dport 67 -j ACCEPT
+-A INPUT ! -i eth0 -p tcp --dport 22 -j ACCEPT
+-A INPUT ! -i eth0 -p udp --dport 123 -j ACCEPT
+-A INPUT ! -i eth0 -p tcp --dport 3128 -j ACCEPT
+-A INPUT ! -i eth0 -p icmp -j ACCEPT
+
+#Final Input - Realted and Drop
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# DROP IP FRAGMENTS
+-A INPUT -f -j LOG_DROPS
+
+#DROP BAD TCP/UDP COMBINATIONS
+-A INPUT -p tcp --dport 0 -j LOG_DROPS
+-A INPUT -p udp --dport 0 -j LOG_DROPS
+-A INPUT -p tcp --tcp-flags ALL NONE -j LOG_DROPS
+-A INPUT -p tcp --tcp-flags ALL ALL -j LOG_DROPS
+
+-A INPUT -j LOG_DROPS
+
+##########################################
+##OUTPUT CHAIN
+##########################################
+
+##Outbound initiated by the Raspberry Pi to the internet
+-A OUTPUT -o l0 -j ACCEPT
+
+#Allow Multicast Traffic - If this was dropped and logged a lot of benign logs were genrated
+-A OUTPUT -s 224.0.0.0/24 -j ACCEPT
+-A OUTPUT -d 224.0.0.0/24 -j ACCEPT
+-A OUTPUT -s 127.0.0.1 -j ACCEPT
+-A OUTPUT -d 127.0.0.1 -j ACCEPT
+
+-A OUTPUT -p tcp --dport 22 -j ACCEPT 
+-A OUTPUT -p tcp --dport 25 -j ACCEPT
+-A OUTPUT -p tcp --dport 53 -j ACCEPT
+-A OUTPUT -p udp --dport 53 -j ACCEPT
+-A OUTPUT -o eth0 -p tcp --dport 443 -j ACCEPT
+-A OUTPUT -o eth0 -p tcp --dport 80 -j ACCEPT
+-A OUTPUT -o eth0 -p udp --dport 123 -j ACCEPT
+-A OUTPUT -o eth0 -p tcp --dport 43 -j ACCEPT
+-A OUTPUT -o eth0 -p udp --dport 500 -j ACCEPT
+-A OUTPUT -o eth0 -p udp --dport 4500 -j ACCEPT
+-A OUTPUT -o eth0 -p tcp --dport 7547 -j ACCEPT
+-A OUTPUT -o eth0 -p tcp -j ACCEPT
+
+# Any outbound tcp, udp, and icmp-echo to the inside network
+-A OUTPUT ! -o eth0 -p udp --dport 68 -j ACCEPT
+-A OUTPUT -p icmp -j ACCEPT
+
+#Final Output - Related and Drop
+-A OUTPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A OUTPUT -j LOG_DROPS
+
+##########################################
+##FORWARD CHAIN
+#########################################
+
+# Block access to mobile.twitter.com for test purposes
+-I FORWARD -s mobile.twitter.com -j LOG_DROPS
+-I FORWARD -d mobile.twitter.com -j LOG_DROPS
+-I FORWARD -d www.facebook.com -j LOG_DROPS
+
+# Forward all other traffic from wlan0 to eth0 and vice versa
+-A FORWARD -i wlan0 -o eth0 -j ACCEPT
+-A FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+-A FORWARD ! -i eth0 -s 10.0.0.0/8 -p tcp -j ACCEPT
+-A FORWARD ! -i eth0 -s 10.0.0.0/8 -p udp -j ACCEPT
+-A FORWARD ! -i eth0 -s 10.0.0.0/8 -p icmp -j ACCEPT
+-A FORWARD ! -i eth0 -s 192.168.0.0/16 -p tcp -j ACCEPT
+-A FORWARD ! -i eth0 -s 192.168.0.0/16 -p tcp -j ACCEPT
+-A FORWARD ! -i eth0 -s 192.168.0.0/16 -p tcp -j ACCEPT
+-A FORWARD ! -i eth0 -s 172.16.0.0/12 -p tcp -j ACCEPT
+-A FORWARD ! -i eth0 -s 172.16.0.0/12 -p tcp -j ACCEPT
+-A FORWARD ! -i eth0 -s 172.16.0.0/12 -p tcp -j ACCEPT
+
+-A FORWARD -j LOG_DROPS
+
+# Logging
+# Get rid of broadcast noise
+-A LOG_DROPS -d 255.255.255.255 -j DROP
+-A LOG_DROPS -p ip -m limit --limit 30/sec -j LOG --log-prefix "iptables:" --log-level 7
+-A LOG_DROPS -j DROP
+
+# Commit all of the above rules
+COMMIT
+
